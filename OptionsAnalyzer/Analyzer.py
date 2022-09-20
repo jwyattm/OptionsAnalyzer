@@ -274,6 +274,3 @@ def get_beta(ticker):
     var = log_returns['SPY'].var()
 
     return cov.loc[ticker, 'SPY']/var
-
-trans = TDfile('C:/Users/Wyatt/transactions.xlsx')
-trans.analyze()
