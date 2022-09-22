@@ -66,6 +66,7 @@ class TDfile:
     #takes TDfile instance and r and returns current (theoretical) options portfolio exposure
     def current_exposure(self):
         open_positions = create_options(self.open_positions)
+        open_positions = open_positions.dropna()
         r = yf.Ticker('^TNX').info['regularMarketPrice'] / 100
         date = str(dt.today())
         tickers = []
@@ -100,6 +101,7 @@ class TDfile:
 
     def current_mkt_exposure(self):
         open_positions = create_options(self.open_positions)
+        open_positions = open_positions.dropna()
         current_spy_price = yf.Ticker('SPY').info['regularMarketPrice']
         r = yf.Ticker('^TNX').info['regularMarketPrice'] / 100
 
