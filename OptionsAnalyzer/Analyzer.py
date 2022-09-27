@@ -67,10 +67,10 @@ class TDfile:
         options = create_options(open_positions)
         expired = []
         for index, row in options.iterrows():
-            if row['Option Object'].expiration.date() > dt.today():
+            if row['Option Object'].expiration.date() < dt.today():
                 exp_option = row['Desc']
                 expired.append(exp_option)
-        open_positions = open_positions[open_positions['Desc'].isin(expired)]
+        open_positions = open_positions[~open_positions['Desc'].isin(expired)]
 
         return open_positions
     
