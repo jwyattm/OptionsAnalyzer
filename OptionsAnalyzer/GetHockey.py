@@ -3,6 +3,7 @@ from Options import graph_hockeystick
 from yahoo_fin import options
 import pandas as pd
 
+# This whole file is pretty much useless. Ignore it.
 print('Ticker?')
 ticker = input().upper()
 

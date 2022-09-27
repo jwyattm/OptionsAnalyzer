@@ -10,7 +10,7 @@ import matplotlib as mpl
 from mpl_toolkits.mplot3d import Axes3D
 from dateutil.parser import parse
 
-class TDfile:
+class transactions:
 
     def __init__(self, path):
         self.path = path
@@ -21,6 +21,11 @@ class TDfile:
 
     #return cleaned transaction table
     def clean(self):
+
+        '''
+        Returns cleaned transactions table.
+        '''
+
         cleaned = self.orig_table.drop(['REG FEE', 'SHORT-TERM RDM FEE', 'FUND REDEMPTION FEE', ' DEFERRED SALES CHARGE'], axis=1)
         cleaned.drop(cleaned.tail(1).index, inplace=True)
         mapper = {'COMMISSION': 'Commission', 'AMOUNT': 'Amount', 'DATE': 'Date', 'TRANSACTION ID': 'Tran ID', 
@@ -31,6 +36,11 @@ class TDfile:
 
     #return open positions
     def open_positions(self):
+
+        '''
+        Returns dataframe with open positions (does not currently work correctly for stock positions).
+        '''
+
         symbols = self.table['Symbol'].tolist()
         opens = []
         for sym in symbols:
@@ -63,7 +73,7 @@ class TDfile:
         open_positions = pd.DataFrame(open_pos)
         open_positions.set_index('Date', inplace=True)
 
-        # Remove options that have been are past expiration (expired or assigned)
+        # Remove options that have are past expiration (expired or assigned)
         options = create_options(open_positions)
         expired = []
         for index, row in options.iterrows():
@@ -74,8 +84,12 @@ class TDfile:
 
         return open_positions
     
-    #takes TDfile instance and r and returns current (theoretical) options portfolio exposure
     def current_exposure(self):
+
+        '''
+        Takes transactions instance and r and returns datafrane with current (theoretical) greeks for every ticker in portfolio.
+        '''
+
         open_positions = create_options(self.open_positions)
         open_positions = open_positions.dropna()
         r = yf.Ticker('^TNX').info['regularMarketPrice'] / 100
@@ -111,6 +125,12 @@ class TDfile:
         return theo_values
     
     def b_w_delta(self):
+
+        '''
+        Creates graph of the portfolio's beta weighted delta for different SPY prices. ** Assumes IV and r remains constant from option's purchase
+        to expiration and that beta is an exact predictor of stock prices. ** 
+        '''
+
         # Get all open option positions
         open_positions = create_options(self.open_positions)
         
@@ -174,16 +194,13 @@ class TDfile:
         plt.show()
         return b_w_delta
             
-
-
-
-        
-
-        
-
-
-
     def current_mkt_exposure(self):
+
+        '''
+        Creates graph of theoretical P/L at different SPY prices through time. ** Assumes that IV and r of options remains constant from purchase 
+        to expiration and that beta is an exactly accurate. **
+        '''
+
         open_positions = create_options(self.open_positions)
         current_spy_price = yf.Ticker('SPY').info['regularMarketPrice']
         r = yf.Ticker('^TNX').info['regularMarketPrice'] / 100
@@ -287,7 +304,11 @@ class TDfile:
         return total_exposure
 
     def closed_positions(self):
-        #get closed options positions
+
+        '''
+        Get's all closed positions (does not currently work with stock positions).
+        '''
+
         symbols = self.table['Symbol'].tolist()
         closed = []
         for sym in symbols:
@@ -323,14 +344,36 @@ class TDfile:
         return closed_positions
         
     def analyze(self):
+
+        '''
+        WILL eventually analyze statistical metrics of different options strategies. Thinking about how to do pairing logic.
+        '''
+
         hist_table = self.closed_positions
         print(hist_table.to_string())
-            
 
 
+class bal_hist:
+    
+    def __init__(self, path):
+        self.path = path
+        self.table = pd.read_excel(path)
 
-#takes (cleaned) dataframe and creates a new column of Option instances 
+    def equity_chart(self, transactions):
+
+        '''
+        WILL create an equity chart from balance history and transactions that shows geometric returns of account vs geometric returns of SPY.
+        '''
+
+        pass
+
+
 def create_options(table):
+
+    '''
+    Takes (cleaned) dataframe and creates a new column of Option instances.
+    '''
+
     options = []
     for index, row in table.iterrows():
             symbol = str(row['Symbol'])
@@ -349,6 +392,11 @@ def create_options(table):
     return table.dropna()
                                      
 def get_beta(ticker):
+
+    '''
+    Takes arg ticker and get's beta with SPY.
+    '''
+
     start = dt.today() - datetime.timedelta(days=5*365)
     tickers = [ticker, 'SPY']
     data = web.get_data_yahoo(tickers, start, interval='m')

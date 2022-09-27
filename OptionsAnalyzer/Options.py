@@ -16,8 +16,12 @@ class Option:
         self.short_long = short_long
         self.expiration = expiration if isinstance(expiration, datetime) else parse(expiration)
 
-    #returns implied volatility
     def impl_vol(self, stock_price, r, date):
+
+        '''
+        Takes stock price, r, and date and returns the IV of an option.
+        '''
+
         date = date if isinstance(date, datetime) else parse(date)
         tol = 0.0001
         max_iterations=1000
@@ -31,8 +35,12 @@ class Option:
             vol = vol - diff / theos.loc['Vega']
         return vol
 
-    #get current implied volatility and price
     def get_current_values(self):
+
+        '''
+        Returns the current price and IV of an option from the yahoo finance API.
+        '''
+
         ticker = yf.Ticker(self.ticker)
         if self.call_put == 'call':
             chain = ticker.option_chain(self.expiration.strftime('%Y-%m-%d')).calls
@@ -45,8 +53,12 @@ class Option:
 
         
 
-    #method returns P/L on expiration
     def get_exp_pl(self, stock_price):
+
+        '''
+        Takes stock price and returns the P/L of the option upon expiration.
+        '''
+
         if self.call_put == 'call' and self.short_long == 'long':
             if self.strike < stock_price: return (stock_price - self.strike) - self.price
             if self.strike >= stock_price: return -self.price
@@ -63,8 +75,12 @@ class Option:
             if self.strike > stock_price: return (stock_price - self.strike) + self.price
             if self.strike <= stock_price: return self.price
 
-    #returns Black Scholes theo value and greeks as a pandas Series with index: Theo Value, Delta, Gamma, Theta, Vega, Rho
     def theo_values(self, stock_price, r, vol, date):
+
+        '''
+        Takes stock price, r, IV and date; returns a Series with index: Theo Value, Delta, Gamma, Theta, Vega and Rho.
+        '''
+
         date = date if isinstance(date, datetime) else parse(date)
         t = (self.expiration - date).days / 365
         N = norm.cdf
@@ -95,8 +111,12 @@ class Option:
             theo_values = pd.Series(theo_values, index=['Theo Price', 'Delta', 'Gamma', 'Theta', 'Vega', 'Rho'])
             return theo_values
 
-#takes list of Option instances to create graph of P/L on expiration
 def graph_hockeystick(option_list):
+
+    '''
+    Takes a list of Option instances and creates a graph of P/L on expiration.
+    '''
+
     option_strikes = [x.strike for x in option_list]
 
     min_stock_price = round(min(option_strikes)) - 5 if round(min(option_strikes)) - 5 >= 0 else 0 
