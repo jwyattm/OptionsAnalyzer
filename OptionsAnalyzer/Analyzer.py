@@ -10,7 +10,7 @@ import matplotlib as mpl
 from mpl_toolkits.mplot3d import Axes3D
 from dateutil.parser import parse
 
-class transactions:
+class Transactions:
 
     def __init__(self, path):
         self.path = path
@@ -19,7 +19,6 @@ class transactions:
         self.open_positions = self.open_positions()
         self.closed_positions = self.closed_positions()
 
-    #return cleaned transaction table
     def clean(self):
 
         '''
@@ -34,7 +33,6 @@ class transactions:
         cleaned.set_index('Date', inplace=True)
         return cleaned
 
-    #return open positions
     def open_positions(self):
 
         '''
@@ -87,7 +85,7 @@ class transactions:
     def current_exposure(self):
 
         '''
-        Takes transactions instance and r and returns datafrane with current (theoretical) greeks for every ticker in portfolio.
+        Takes Transactions instance and returns datafrane with current (theoretical) greeks for every ticker in portfolio.
         '''
 
         open_positions = create_options(self.open_positions)
@@ -353,7 +351,7 @@ class transactions:
         print(hist_table.to_string())
 
 
-class bal_hist:
+class Bal_hist:
     
     def __init__(self, path):
         self.path = path
