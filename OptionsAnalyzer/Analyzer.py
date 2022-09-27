@@ -8,6 +8,7 @@ import pandas_datareader.data as web
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 from mpl_toolkits.mplot3d import Axes3D
+from dateutil.parser import parse
 
 class TDfile:
 
@@ -61,6 +62,16 @@ class TDfile:
                     'Price': prices, 'Commission': comms, 'Amount': amts}
         open_positions = pd.DataFrame(open_pos)
         open_positions.set_index('Date', inplace=True)
+
+        # Remove options that have been are past expiration (expired or assigned)
+        options = create_options(open_positions)
+        expired = []
+        for index, row in options.iterrows():
+            if row['Option Object'].expiration.date() > dt.today():
+                exp_option = row['Desc']
+                expired.append(exp_option)
+        open_positions = open_positions[open_positions['Desc'].isin(expired)]
+
         return open_positions
     
     #takes TDfile instance and r and returns current (theoretical) options portfolio exposure
@@ -98,10 +109,82 @@ class TDfile:
         theo_values = pd.DataFrame(theo_values)
         theo_values = theo_values.groupby('Ticker').sum()
         return theo_values
+    
+    def b_w_delta(self):
+        # Get all open option positions
+        open_positions = create_options(self.open_positions)
+        
+        #Get 'risk free rate'
+        r = yf.Ticker('^TNX').info['regularMarketPrice'] / 100
+
+        #Add betas to table
+        betas = []
+        for index, row in open_positions.iterrows():
+            betas.append(get_beta(row['Option Object'].ticker))
+        open_positions['beta'] = betas
+
+        #Add vols (IV on purchase) to table
+        vols = []
+        stock_prices = []
+        for index, row in open_positions.iterrows():
+            date_purch = index
+            desc = str.split(row['Desc'])
+            ticker = desc[2]
+            stock_price = yf.Ticker(ticker).info['regularMarketPrice']
+            stock_prices.append(stock_price)
+            option = row['Option Object']
+            if date_purch == pd.Timestamp(dt.today()):
+                SK_onPurchase = stock_price
+                r_onPurchase = r
+            else:
+                Sk_onPurchase = web.get_data_yahoo(option.ticker, start=date_purch, end=date_purch)['Open'].iloc[0]
+                r_onPurchase = web.get_data_yahoo('^TNX', start=date_purch, end=date_purch)['Open'].iloc[0] / 100
+            vol = option.impl_vol(Sk_onPurchase, r_onPurchase, date_purch)
+            vols.append(vol)
+            print(str(ticker) + str(option.strike) + str(date_purch) + ' data loaded')
+        open_positions['Implied Volatility'] = vols
+        open_positions['Stock Prices'] = stock_prices
+
+        #get spy price and create spy price range
+        spy_price = yf.Ticker('SPY').info['regularMarketPrice']
+        mult_range = np.linspace(-0.1, 0.1, 21).tolist()
+        SPY_prices = []
+        for mult in mult_range:
+            SPY_prices.append(round(spy_price + spy_price * mult, 2))
+
+        #Calculate beta-weighted delta
+        delta_sums = []
+        today = str(dt.today())
+        for price in SPY_prices:
+            deltas = []
+            for index, row in open_positions.iterrows():
+                theo_pct_change = (price/spy_price - 1) * row['beta']
+                theo_stock_price = row['Stock Prices'] - (row['Stock Prices'] * theo_pct_change)
+                print(theo_stock_price)
+                delta = row['Option Object'].theo_values(theo_stock_price, r, row['Implied Volatility'], today)['Delta']
+                if row['Option Object'].short_long == 'short':
+                    delta = -delta
+                b_w_delta = (theo_stock_price / price) * row['beta'] * delta
+                deltas.append(b_w_delta)
+
+            delta_sums.append(np.sum(b_w_delta))
+
+        b_w_delta = pd.Series(delta_sums, index=SPY_prices)
+        plt.plot(b_w_delta)
+        plt.show()
+        return b_w_delta
+            
+
+
+
+        
+
+        
+
+
 
     def current_mkt_exposure(self):
         open_positions = create_options(self.open_positions)
-        open_positions = open_positions.dropna()
         current_spy_price = yf.Ticker('SPY').info['regularMarketPrice']
         r = yf.Ticker('^TNX').info['regularMarketPrice'] / 100
 
@@ -263,7 +346,7 @@ def create_options(table):
             else:
                 options.append(np.nan)
     table['Option Object'] = options
-    return table
+    return table.dropna()
                                      
 def get_beta(ticker):
     start = dt.today() - datetime.timedelta(days=5*365)
