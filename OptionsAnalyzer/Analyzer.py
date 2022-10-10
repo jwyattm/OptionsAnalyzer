@@ -1,3 +1,6 @@
+from ctypes.wintypes import VARIANT_BOOL
+from statistics import variance
+from tkinter import Variable
 from Options import Option
 import pandas as pd
 import numpy as np
@@ -351,13 +354,13 @@ class Transactions:
         print(hist_table.to_string())
 
 
-class Bal_hist:
+class Balances:
     
     def __init__(self, path):
         self.path = path
         self.table = pd.read_excel(path)
 
-    def equity_chart(self, transactions):
+    def summary(self, transactions, start=None, end=None):
 
         '''
         WILL create an equity chart from balance history and transactions that shows geometric returns of account vs geometric returns of SPY.
@@ -367,26 +370,84 @@ class Bal_hist:
         bal_table.dropna(inplace=True)
         tran_table = transactions.orig_table
 
+        #see if dates passed to function, if not, default
+        if not start:
+            start = bal_table['Date'].iloc[0]
+        else:
+            start = parse(start)
+        if not end:
+            end = bal_table['Date'].iloc[len(bal_table)-1]
+        else:
+            end = parse(end)
+
+        #resample/ffill to cover weekends too and filter by date arguments if needed
+        bal_table.set_index('Date', inplace=True)
+        bal_table = bal_table.asfreq('D', method='ffill')
+        bal_table.reset_index(inplace=True)
+        bal_table = bal_table[bal_table['Date'] >= start]
+        bal_table = bal_table[bal_table['Date'] <= end]
+        bal_table.reset_index(inplace=True)
+
         #Get all contributions from transactions and pull date and amt into dict
         cont_keys = ['ELECTRONIC NEW ACCOUNT FUNDING',
                      'CLIENT REQUESTED ELECTRONIC FUNDING RECEIPT (FUNDS NOW)']
         conts_table = tran_table[tran_table['DESCRIPTION'].isin(cont_keys)]
         conts = {row['DATE']: row['AMOUNT'] for index, row in conts_table.iterrows()}
         
-        #get factor by which account value changed for each date in bal_hist
-        factors = []
+        #get daily (returns + 1)
+        returns = []
         for index, row in bal_table.iterrows():
-            if index == 0:
+            if index == 0: 
                 factor = 1.0
-            elif row['Date'] in (conts.keys()): #if date had contribution, add contribution to previous date's acc val
+            elif row['Date'] in (conts.keys()): #if date had contribution, add contribution to previous date's acc val in calc
                 factor = row['Account value'] / (bal_table['Account value'].iloc[index - 1] + conts[row['Date']])
             else:
                 factor = row['Account value'] / bal_table['Account value'].iloc[index - 1]
-            factors.append(factor)
+            returns.append(factor)
 
+        #Calculate equity over time ($100,000 initial)
+        bal_table['cont adj returns'] = returns
+        bal_table['factor'] = bal_table['cont adj returns'].cumprod()
+        bal_table['cont adj returns'] = bal_table['cont adj returns'] - 1
+        bal_table['equity'] = bal_table['factor'] * 100000
+        
+        #Get corresponding SPY equity
+        SPY_data = web.get_data_yahoo('SPY', start - datetime.timedelta(days=5), end + datetime.timedelta(days=5))
+        SPY_data = SPY_data.asfreq('D', method='ffill')
+        SPY_data.reset_index(inplace=True)
+        SPY_data = SPY_data[SPY_data['Date'] >= start] #this is done to make the indices match easier
+        SPY_data = SPY_data[SPY_data['Date'] <= end]
 
-        geo_mean = np.prod(factors) ** (1/len(factors)) - 1
-        geo_mean = geo_mean * 100
+        bal_table['SPY price'] = SPY_data['Open'].to_list()
+        bal_table['SPY returns'] = (bal_table['SPY price'].shift() / bal_table['SPY price']) - 1
+        bal_table['SPY returns'].iloc[0] = 0
+        bal_table['SPY factor'] = bal_table['SPY price'] / bal_table['SPY price'].iloc[0]
+        bal_table['SPY equity'] = bal_table['SPY factor'] * 100000
+        bal_table.set_index('Date', inplace=True)
+
+        #Graph SPY equity vs equity
+        fig, ax = plt.subplots()
+        ax.plot(bal_table.index, bal_table['equity'].to_list())
+        ax.plot(bal_table.index, bal_table['SPY equity'].to_list())
+        ax.set_title('Geometric Portfolio Returns vs SPY Returns ($100,000)')
+        ax.set_xlabel('Date')
+        ax.set_ylabel('Equity ($)')
+        plt.show()
+
+        #Get some summary statistics
+        stats = {}
+        stats['Total (Geometric) Return'] = bal_table['factor'].iloc[-1] - 1
+
+        cov = np.cov(bal_table['cont adj returns'].to_list(), bal_table['SPY returns'].to_list())[0][1]
+        var = np.var(bal_table['cont adj returns'].to_list())
+        stats['Beta'] = cov/var 
+
+        print(stats)
+
+        return pd.Series(stats)
+
+        
+        
         
 
         
