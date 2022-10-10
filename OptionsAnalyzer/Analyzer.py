@@ -363,7 +363,33 @@ class Bal_hist:
         WILL create an equity chart from balance history and transactions that shows geometric returns of account vs geometric returns of SPY.
         '''
 
-        pass
+        bal_table = self.table
+        bal_table.dropna(inplace=True)
+        tran_table = transactions.orig_table
+
+        #Get all contributions from transactions and pull date and amt into dict
+        cont_keys = ['ELECTRONIC NEW ACCOUNT FUNDING',
+                     'CLIENT REQUESTED ELECTRONIC FUNDING RECEIPT (FUNDS NOW)']
+        conts_table = tran_table[tran_table['DESCRIPTION'].isin(cont_keys)]
+        conts = {row['DATE']: row['AMOUNT'] for index, row in conts_table.iterrows()}
+        
+        #get factor by which account value changed for each date in bal_hist
+        factors = []
+        for index, row in bal_table.iterrows():
+            if index == 0:
+                factor = 1.0
+            elif row['Date'] in (conts.keys()): #if date had contribution, add contribution to previous date's acc val
+                factor = row['Account value'] / (bal_table['Account value'].iloc[index - 1] + conts[row['Date']])
+            else:
+                factor = row['Account value'] / bal_table['Account value'].iloc[index - 1]
+            factors.append(factor)
+
+
+        geo_mean = np.prod(factors) ** (1/len(factors)) - 1
+        geo_mean = geo_mean * 100
+        
+
+        
 
 
 def create_options(table):
