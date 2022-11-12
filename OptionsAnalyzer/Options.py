@@ -5,16 +5,21 @@ from scipy.stats import norm
 from datetime import datetime, timedelta
 from dateutil.parser import parse
 import yfinance as yf
+import pandas_datareader.data as web
 
 class Option:
 
-    def __init__(self, ticker, strike, price, call_put, short_long, expiration):
+    def __init__(self, ticker, strike, price, call_put, short_long, expiration, Sk_onPurchase, r_onPurchase, stock_beta, date_purch):
         self.ticker = ticker
         self.strike = strike
         self.price = price
         self.call_put = call_put
         self.short_long = short_long
         self.expiration = expiration if isinstance(expiration, datetime) else parse(expiration)
+        self.Sk_onPurchase = Sk_onPurchase
+        self.r_onPurchase = r_onPurchase
+        self.stock_beta = stock_beta
+        self.date_purch = date_purch
 
     def impl_vol(self, stock_price, r, date):
 

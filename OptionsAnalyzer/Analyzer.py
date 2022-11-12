@@ -72,25 +72,23 @@ class Transactions:
         open_positions.set_index('Date', inplace=True)
 
         # Remove options that have are past expiration (expired or assigned)
-        options = create_options(open_positions)
+        open_positions = create_options(open_positions)
         expired = []
-        for index, row in options.iterrows():
+        for index, row in open_positions.iterrows():
             if row['Option Object'].expiration.date() < dt.today():
                 exp_option = row['Desc']
                 expired.append(exp_option)
         open_positions = open_positions[~open_positions['Desc'].isin(expired)]
 
-        return open_positions
+        return open_positions.dropna()
     
     def current_exposure(self):
 
         '''
-        Takes Transactions instance and returns datafrane with current (theoretical) greeks for every ticker in portfolio.
+        Takes Transactions instance and returns datafrane with current (theoretical) greeks for every ticker in portfolio. Assumes IV and r
+        has remained constant since each option acquisition.
         '''
-
-        open_positions = create_options(self.open_positions)
-        open_positions = open_positions.dropna()
-        r = yf.Ticker('^TNX').info['regularMarketPrice'] / 100
+        open_positions = self.open_positions.dropna()
         date = str(dt.today())
         tickers = []
         deltas = [] 
@@ -101,8 +99,9 @@ class Transactions:
         for index, row in open_positions.iterrows():
             ticker = str.split(str(row['Symbol']))[0]
             option = row['Option Object']
-            vol = option.get_current_values()['implVol']
+            vol = option.impl_vol(option.Sk_onPurchase, option.r_onPurchase, option.date_purch)
             stock_price = yf.Ticker(ticker).info['regularMarketPrice']
+            r = option.r_onPurchase
 
             theo_values = option.theo_values(stock_price, r, vol, date)
             theo_values = theo_values.to_list()[1:]
@@ -130,7 +129,7 @@ class Transactions:
         '''
 
         # Get all open option positions
-        open_positions = create_options(self.open_positions)
+        open_positions = self.open_positions.dropna()
         
         #Get 'risk free rate'
         r = yf.Ticker('^TNX').info['regularMarketPrice'] / 100
@@ -138,28 +137,19 @@ class Transactions:
         #Add betas to table
         betas = []
         for index, row in open_positions.iterrows():
-            betas.append(get_beta(row['Option Object'].ticker))
+            betas.append(row['Option Object'].stock_beta)
         open_positions['beta'] = betas
 
         #Add vols (IV on purchase) to table
         vols = []
         stock_prices = []
         for index, row in open_positions.iterrows():
-            date_purch = index
-            desc = str.split(row['Desc'])
-            ticker = desc[2]
+            option = row['Option Object']
+            ticker = option.ticker
             stock_price = yf.Ticker(ticker).info['regularMarketPrice']
             stock_prices.append(stock_price)
-            option = row['Option Object']
-            if date_purch == pd.Timestamp(dt.today()):
-                SK_onPurchase = stock_price
-                r_onPurchase = r
-            else:
-                Sk_onPurchase = web.get_data_yahoo(option.ticker, start=date_purch, end=date_purch)['Open'].iloc[0]
-                r_onPurchase = web.get_data_yahoo('^TNX', start=date_purch, end=date_purch)['Open'].iloc[0] / 100
-            vol = option.impl_vol(Sk_onPurchase, r_onPurchase, date_purch)
+            vol = option.impl_vol(option.Sk_onPurchase, option.r_onPurchase, option.date_purch)
             vols.append(vol)
-            print(str(ticker) + str(option.strike) + str(date_purch) + ' data loaded')
         open_positions['Implied Volatility'] = vols
         open_positions['Stock Prices'] = stock_prices
 
@@ -178,7 +168,6 @@ class Transactions:
             for index, row in open_positions.iterrows():
                 theo_pct_change = (price/spy_price - 1) * row['beta']
                 theo_stock_price = row['Stock Prices'] - (row['Stock Prices'] * theo_pct_change)
-                print(theo_stock_price)
                 delta = row['Option Object'].theo_values(theo_stock_price, r, row['Implied Volatility'], today)['Delta']
                 if row['Option Object'].short_long == 'short':
                     delta = -delta
@@ -198,43 +187,30 @@ class Transactions:
         Creates graph of theoretical P/L at different SPY prices through time. ** Assumes that IV and r of options remains constant from purchase 
         to expiration and that beta is an exactly accurate. **
         '''
-
-        open_positions = create_options(self.open_positions)
+        open_positions = self.open_positions.dropna()
         current_spy_price = yf.Ticker('SPY').info['regularMarketPrice']
         r = yf.Ticker('^TNX').info['regularMarketPrice'] / 100
 
-        #add tickers and vols (IV on purchase) to open_positions DataFrame
+        #add tickers, vols (IV on purchase) and betas to open_positions DataFrame
         tickers = []
         vols = []
         stock_prices = []
+        betas = []
         for index, row in open_positions.iterrows():
-            date_purch = index
-            desc = str.split(row['Desc'])
-            ticker = desc[2]
-            tickers.append(ticker)
+            option = row['Option Object']
+            ticker = option.ticker
+            tickers.append(option.ticker)
             stock_price = yf.Ticker(ticker).info['regularMarketPrice']
             stock_prices.append(stock_price)
-            option = row['Option Object']
-            if date_purch == dt.today():
-                SK_onPurchase = stock_price
-                r_onPurchase = r
-            else:
-                Sk_onPurchase = web.get_data_yahoo(option.ticker, start=date_purch, end=date_purch)['Open'].iloc[0]
-                r_onPurchase = web.get_data_yahoo('^TNX', start=date_purch, end=date_purch)['Open'].iloc[0] / 100
-            vol = option.impl_vol(Sk_onPurchase, r_onPurchase, date_purch)
+            vol = option.impl_vol(option.Sk_onPurchase, option.r_onPurchase, option.date_purch)
             vols.append(vol)
-            print(str(ticker) + str(option.strike) + str(date_purch) + ' data loaded')
+            betas.append(option.stock_beta)
         open_positions['Ticker'] = tickers
         open_positions['Implied Volatility'] = vols
         open_positions['Stock Price'] = stock_prices
-        
-        #add betas to open_positions DataFrame
-        betas = []
-        for ticker in tickers:
-            beta = get_beta(ticker)
-            betas.append(beta)
         open_positions['Beta'] = betas
-        open_positions['Implied Volatility'] = vols
+        
+        #readjust dataframe for analysis
         open_positions.reset_index(inplace=True)
         open_positions.drop(['Date', 'Tran ID', 'Desc', 'Quantity', 'Symbol', 'Price', 'Commission', 'Amount'], axis=1, inplace=True)
         
@@ -286,7 +262,6 @@ class Transactions:
             mkt_exposure.index = SPY_prices
             total_exposure[date] = mkt_exposure
         
-        print(total_exposure.transpose().to_string())
         x = np.arange(len(total_exposure.columns))
         y = total_exposure.index
         X,Y = np.meshgrid(x,y)
@@ -298,13 +273,14 @@ class Transactions:
         plt.title('Theoretical P/L for SPY Price through Time')
         plt.xlabel('Dates ' + str(dt.today()) + ' through ' + str(last_exp)[:-9])
         plt.ylabel('SPY Price')
+        fig.set_size_inches(10, 10)
         plt.show()
         return total_exposure
 
     def closed_positions(self):
 
         '''
-        Get's all closed positions (does not currently work with stock positions).
+        Get's all closed positions (does not currently work with stock positions). Does not create option objects by default!
         '''
 
         symbols = self.table['Symbol'].tolist()
@@ -338,7 +314,6 @@ class Transactions:
                     'Price': prices, 'Commission': comms, 'Amount': amts}
         closed_positions = pd.DataFrame(closed_pos)
         closed_positions.set_index('Date', inplace=True)
-        closed_positions = create_options(closed_positions)
         return closed_positions
         
     def analyze(self):
@@ -360,10 +335,10 @@ class Balances:
     def summary(self, transactions, start=None, end=None):
 
         '''
-        WILL create an equity chart from balance history and transactions that shows geometric returns of account vs geometric returns of SPY.
+        WILL create an equity chart from balance history and transactions that shows returns of account vs returns of SPY.
         '''
 
-        bal_table = self.table
+        bal_table = self.table.copy()
         bal_table.dropna(inplace=True)
         tran_table = transactions.orig_table
 
@@ -391,23 +366,35 @@ class Balances:
         conts_table = tran_table[tran_table['DESCRIPTION'].isin(cont_keys)]
         conts = {row['DATE']: row['AMOUNT'] for index, row in conts_table.iterrows()}
         
-        #get daily (returns + 1)
+        #get daily (returns + 1) !arithmetic and geometric factors
         returns = []
+        arith_factors = []
+        total_cont = bal_table['Account value'].iloc[0]
         for index, row in bal_table.iterrows():
             if index == 0: 
                 factor = 1.0
+                arith_factor = 1.0
             elif row['Date'] in (conts.keys()): #if date had contribution, add contribution to previous date's acc val in calc
                 factor = row['Account value'] / (bal_table['Account value'].iloc[index - 1] + conts[row['Date']])
+                total_cont += conts[row['Date']]
+                arith_factor = row['Account value'] / total_cont
             else:
                 factor = row['Account value'] / bal_table['Account value'].iloc[index - 1]
+                if total_cont:
+                    arith_factor = row['Account value'] / total_cont
+                else: arith_factor = 1.0
             returns.append(factor)
+            arith_factors.append(arith_factor)
 
-        #Calculate equity over time ($100,000 initial)
+        #Calculate equity over time ($100,000 initial) both geo and arith
         bal_table['cont adj returns'] = returns
+        bal_table['arith factor'] = arith_factors
+        bal_table['returns'] = bal_table['arith factor'] - 1
         bal_table['factor'] = bal_table['cont adj returns'].cumprod()
         bal_table['cont adj returns'] = bal_table['cont adj returns'] - 1
         bal_table['equity'] = bal_table['factor'] * 100000
-        
+        bal_table['arith equity'] = bal_table['arith factor'] * 100000
+
         #Get corresponding SPY equity
         SPY_data = web.get_data_yahoo('SPY', start - datetime.timedelta(days=5), end + datetime.timedelta(days=5))
         SPY_data = SPY_data.asfreq('D', method='ffill')
@@ -423,31 +410,38 @@ class Balances:
         bal_table.set_index('Date', inplace=True)
 
         #Graph SPY equity vs equity
-        fig, ax = plt.subplots()
-        ax.plot(bal_table.index, bal_table['equity'].to_list())
-        ax.plot(bal_table.index, bal_table['SPY equity'].to_list())
-        ax.set_title('Geometric Portfolio Returns vs SPY Returns ($100,000)')
-        ax.set_xlabel('Date')
-        ax.set_ylabel('Equity ($)')
+        fig, (ax1, ax2) = plt.subplots(2)
+
+        #Geometric graph
+        ax1.plot(bal_table.index, bal_table['equity'].to_list())
+        ax1.plot(bal_table.index, bal_table['SPY equity'].to_list())
+        ax1.set_title('Contribution Adjusted Portfolio Returns vs SPY Returns ($100,000)')
+        ax1.set_xlabel('Date')
+        ax1.set_ylabel('Equity ($)')
+
+        #Arithmetic graph
+        ax2.plot(bal_table.index, bal_table['arith equity'].to_list())
+        ax2.plot(bal_table.index, bal_table['SPY equity'].to_list())
+        ax2.set_title('Portfolio Returns vs SPY Returns ($100,000)')
+        ax2.set_xlabel('Date')
+        ax2.set_ylabel('Equity ($)')
+
         plt.show()
 
         #Get some summary statistics
-        stats = {}
-        stats['Total (Geometric) Return'] = bal_table['factor'].iloc[-1] - 1
+        stats = pd.DataFrame(index=['Contribution Adjusted', 'Not Adjusted'])
+        stats['Total Return'] = [bal_table['factor'].iloc[-1] - 1, bal_table['arith factor'].iloc[-1] - 1]
 
-        cov = np.cov(bal_table['cont adj returns'].to_list(), bal_table['SPY returns'].to_list())[0][1]
-        var = np.var(bal_table['cont adj returns'].to_list())
-        stats['Beta'] = cov/var 
+        geo_cov = np.cov(bal_table['cont adj returns'].to_list(), bal_table['SPY returns'].to_list())[0][1]
+        geo_var = np.var(bal_table['cont adj returns'].to_list())
+        arith_cov = np.cov(bal_table['returns'].to_list(), bal_table['SPY returns'].to_list())[0][1]
+        arith_var = np.var(bal_table['returns'].to_list())
+        stats['Beta'] = [geo_cov/geo_var, arith_cov/arith_var]
 
-        print(stats)
-
-        return pd.Series(stats)
-
-        
-        
-        
+        return stats
 
         
+              
 
 
 def create_options(table):
@@ -467,7 +461,20 @@ def create_options(table):
                 short_long = 'long' if str.split(str(row['Desc']))[0] == 'Bought' else 'short'
                 expiration = ' '.join(symbol[1:4])
                 ticker = str.split(str(row['Desc']))[2]
-                options.append(Option(ticker, strike, price, call_put, short_long, expiration))
+
+                #query for more info
+                date_purch = index
+                if date_purch == dt.today():
+                    Sk_onPurchase = yf.Ticker(ticker).info['regularMarketPrice']
+                    r_onPurchase = r
+                else:
+                    Sk_onPurchase = web.get_data_yahoo(ticker, start=date_purch, end=date_purch)['Open'].iloc[0]
+                    r_onPurchase = web.get_data_yahoo('^TNX', start=date_purch, end=date_purch)['Open'].iloc[0] / 100
+
+                stock_beta = get_beta(ticker)
+
+                options.append(Option(ticker, strike, price, call_put, short_long, expiration, Sk_onPurchase, r_onPurchase, stock_beta, date_purch))
+
             else:
                 options.append(np.nan)
     table['Option Object'] = options
